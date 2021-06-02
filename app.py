@@ -384,6 +384,74 @@ def doc(location,mode=False,out_name='result' , area = 0.2):
     
     
 
+import cv2
+import numpy as np
+
+imagePath = 'wm2.jpg' 
+
+def removeLogo(filename, outputfilename):
+    img = cv2.imread(filename)
+    img = cv2.resize(img,(400,500))
+    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    ret, gray = cv2.threshold(gray,127,255,0)
+    gray2 = gray.copy()
+
+    contours, hier = cv2.findContours(gray,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        if 200<cv2.contourArea(cnt)<5000:
+            (x,y,w,h) = cv2.boundingRect(cnt)
+            cv2.rectangle(gray2,(x,y),(x+w,y+h),0,-1)
+
+    cv2.imwrite(outputfilename,gray2)
+
+
+def removeWatermark(filename, outputfilename):
+    # Load the image
+    img = cv2.imread(filename)
+
+    # Convert the image to grayscale
+    gr = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Make a copy of the grayscale image
+    bg = gr.copy()
+
+    # Apply morphological transformations
+    for i in range(5):
+        kernel2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                            (2 * i + 1, 2 * i + 1))
+        bg = cv2.morphologyEx(bg, cv2.MORPH_CLOSE, kernel2)
+        bg = cv2.morphologyEx(bg, cv2.MORPH_OPEN, kernel2)
+
+    # Subtract the grayscale image from its processed copy
+    dif = cv2.subtract(bg, gr)
+
+    # Apply thresholding
+    bw = cv2.threshold(dif, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+    dark = cv2.threshold(bg, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+
+    # Extract pixels in the dark region
+    darkpix = gr[np.where(dark > 0)]
+
+    # Threshold the dark region to get the darker pixels inside it
+    darkpix = cv2.threshold(darkpix, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+
+    # Paste the extracted darker pixels in the watermark region
+    bw[np.where(dark > 0)] = darkpix.T
+
+    cv2.imwrite(outputfilename, bw)
+
+
+def removeTransparentWatermark(filename, outputfilename):
+    img = cv2.imread(filename)
+
+    alpha = 2.0
+    beta = -160
+
+    new = alpha * img + beta
+    new = np.clip(new, 0, 255).astype(np.uint8)
+
+    cv2.imwrite(outputfilename, new)
+
 
 
 ######################################
@@ -406,16 +474,14 @@ def main():
     
     GUI.mainloop()
 
+    
 
-################################################################   
-########################CBIR_UI#################################
-################################################################
 def DrawScreen():
     DestroyMain()
-    global ButtonBack,ButtonSelectQueryImg,ButtonIndexDB
+    global ButtonSelectQueryImg,ButtonIndexDB
     global labelalg,LabelIndexNote
     global buttonHistoSim,buttonGlobalColor,buttonColorLayout
-    global ButtonDocExtract
+    global ButtonDocExtract,ButtonRemoveLogo,ButtonWatermark,ButtonTransparentWatermark
     global labelthres,labelslidernote
     global origx,origy
     global QueryImgPath
@@ -431,9 +497,20 @@ def DrawScreen():
     QueryImgPath = Text(GUI, height=2, width=40)
 
 
-    ButtonDocExtract = Button(GUI, text="Extract Document",bg="lightgreen", font=("Arial", 12), command=lambda: ExtractDocument())
-    ButtonDocExtract.configure(height=2, width=16)
+    ButtonDocExtract = Button(GUI, text="Extract Document",bg="lightgreen", font=("Arial", 9), command=lambda: ExtractDocument())
+    ButtonDocExtract.configure(height=2, width=17)
+
     
+    ButtonRemoveLogo = Button(GUI, text="Remove Logo",bg="lightgreen", font=("Arial", 9), command=lambda: removeLogoWrapper())
+    ButtonRemoveLogo.configure(height=2, width=17)
+
+    ButtonWatermark = Button(GUI, text="Remove Watermark",bg="lightgreen", font=("Arial", 9), command=lambda: removeWatermarkWrapper())
+    ButtonWatermark.configure(height=2, width=17)
+    
+    ButtonTransparentWatermark = Button(GUI, text="Remove\n  TranspaentWatermark  ",bg="lightgreen", font=("Arial", 9), command=lambda: removeTransparentWatermarkWrapper())
+    ButtonTransparentWatermark.configure(height=2, width=17)
+    
+
     global SaveNote
     SaveNote=StringVar()
     
@@ -464,7 +541,10 @@ def SelectQueryImg():
         labelqueryimg.image = ph
         labelqueryimg.place(x=0, y=origy+230)
         
-        ButtonDocExtract.place(x=origx+90, y=origy+650)
+        ButtonDocExtract.place(x=origx+10, y=origy+650)
+        ButtonRemoveLogo.place(x=origx+150, y=origy+650)
+        ButtonWatermark.place(x=origx+10, y=origy+700)
+        ButtonTransparentWatermark.place(x=origx+150, y=origy+700)        
         
         QueryImgPath.delete('1.0', END)
         QueryImgPath.place(x=5, y=110)
@@ -473,7 +553,7 @@ def SelectQueryImg():
 
 
 def docWrappper(q,imglocation,mode=False,out_name="result",area=0.2):
-    
+   
     try:
        doc(imglocation,mode,out_name,area)
     except Exception as e:
@@ -514,6 +594,86 @@ def ExtractDocument():
      if(error==0):  
           updateOutputImgGUI(outimgpath)
 
+def removeLogoWrapper():
+    
+     global labelresultimg
+     
+     try:
+        labelresultimg.destroy()
+     except:
+         pass
+        
+     directory,inputImageName = os.path.split(queryimgpath)
+     
+     if("out" not in os.listdir()):
+        os.mkdir("out")
+        
+     outpath=os.path.join(directory,"out")
+     
+     outimgpath=os.path.join(outpath,inputImageName)
+     
+     error=0
+     
+     removeLogo(queryimgpath, outimgpath)
+
+     if(error==0):  
+          updateOutputImgGUI(outimgpath)
+
+    
+def removeWatermarkWrapper():
+    
+     global labelresultimg
+     
+     try:
+        labelresultimg.destroy()
+     except:
+         pass
+        
+     directory,inputImageName = os.path.split(queryimgpath)
+     
+     if("out" not in os.listdir()):
+        os.mkdir("out")
+        
+     outpath=os.path.join(directory,"out")
+     
+     outimgpath=os.path.join(outpath,inputImageName)
+     
+     error=0
+     
+     removeWatermark(queryimgpath, outimgpath)
+
+     if(error==0):  
+          updateOutputImgGUI(outimgpath)
+          
+def removeTransparentWatermarkWrapper():
+    
+     global labelresultimg
+     
+     try:
+        labelresultimg.destroy()
+     except:
+         pass
+        
+     directory,inputImageName = os.path.split(queryimgpath)
+     
+     if("out" not in os.listdir()):
+        os.mkdir("out")
+        
+     outpath=os.path.join(directory,"out")
+     
+     outimgpath=os.path.join(outpath,inputImageName)
+     
+     error=0
+     
+     removeTransparentWatermark(queryimgpath, outimgpath)
+
+     if(error==0):  
+          updateOutputImgGUI(outimgpath)
+          
+
+#removeWatermark(imagePath, 'out.jpg')
+
+#removeTransparentWatermark(imagePath, 'out2.png')
      
   
 def updateOutputImgGUI(outImgPath):
@@ -525,7 +685,7 @@ def updateOutputImgGUI(outImgPath):
         
      LabelSaveNote= Label(GUI,textvariable=SaveNote,bg="#d2d2d2",fg="blue",font=("Times", 14))
      SaveNote.set("Image Saved At: \n"+outImgPath)
-     LabelSaveNote.place(x=origx+420,y=origy+650)
+     LabelSaveNote.place(x=origx+390,y=origy+650)
      
      im = Image.open(outImgPath).resize((300, 400))
      ph = ImageTk.PhotoImage(im)
