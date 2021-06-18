@@ -1,5 +1,7 @@
 from tkinter import *
 from tkinter import messagebox
+from tkinter import simpledialog
+
 from PIL import ImageTk, Image
 from tkinter import filedialog
 from multiprocessing import Process,freeze_support,Queue
@@ -20,6 +22,11 @@ from pylsd.lsd import lsd
 import argparse
 import os
 import imutils
+
+import pytesseract
+from sklearn.cluster import KMeans
+
+pytesseract.pytesseract.tesseract_cmd = r'tesseract\tesseract'
 
 
 class PolygonInteractor(object):
@@ -376,7 +383,8 @@ def doc(location,mode=False,out_name='result' , area = 0.2):
   
     directory,inputImageName = os.path.split(location)
 
-    outpath=os.path.join(directory,"out")
+    #outpath=os.path.join(directory,"out")
+    outpath="out"
  
     outimgpath=os.path.join(outpath,inputImageName)
 
@@ -384,10 +392,9 @@ def doc(location,mode=False,out_name='result' , area = 0.2):
     
     
 
-import cv2
-import numpy as np
 
-imagePath = 'wm2.jpg' 
+
+#imagePath = 'wm2.jpg' 
 
 def removeLogo(filename, outputfilename):
     img = cv2.imread(filename)
@@ -454,6 +461,137 @@ def removeTransparentWatermark(filename, outputfilename):
 
 
 
+
+def text_extract(img_path,outTextFilePath,rectImgPath):  
+# Read image from which text needs to be extracted
+  img = cv2.imread(img_path)
+  img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+# Preprocessing the image starts
+  
+# Convert the image to gray scale
+  gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+  
+# Performing OTSU threshold
+  ret, thresh1 = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU | cv2.THRESH_BINARY_INV)
+  
+# Specify structure shape and kernel size. 
+# Kernel size increases or decreases the area 
+# of the rectangle to be detected.
+# A smaller value like (10, 10) will detect 
+# each word instead of a sentence.
+  rect_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (18, 18))
+  
+# Appplying dilation on the threshold image
+  dilation = cv2.dilate(thresh1, rect_kernel, iterations = 1)
+  
+# Finding contours
+  contours, hierarchy = cv2.findContours(dilation, cv2.RETR_EXTERNAL, 
+                                                  cv2.CHAIN_APPROX_NONE)
+  
+# Creating a copy of image
+  im2 = img.copy()
+  
+# A text file is created and flushed
+# file = open("drive/MyDrive/recognized.txt", "w+")
+# file.write("")
+# file.close()
+  
+# Looping through the identified contours
+# Then rectangular part is cropped and passed on
+# to pytesseract for extracting text from it
+# Extracted text is then written into the text file
+  iti=0
+  with open (outTextFilePath,"w") as outfile:
+   for cnt in contours:
+      x, y, w, h = cv2.boundingRect(cnt)
+      iti=iti+1  
+    # Drawing a rectangle on copied image
+      rect = cv2.rectangle(im2, (x, y), (x + w, y + h), (0, 0, 0), 2)
+      cv2.putText(rect, str(iti), (x, y+100), cv2.FONT_HERSHEY_SIMPLEX, 2, (255,0,0), 2)
+     # plt.imshow(rect)  
+    # Cropping the text block for giving input to OCR
+      cropped = im2[y:y + h, x:x + w]
+            
+    # Apply OCR on the cropped image
+      text = pytesseract.image_to_string(cropped) 
+    # Appending the text into file
+      outfile.write(text+"\n")
+      
+  rectRGB= cv2.cvtColor(rect, cv2.COLOR_BGR2RGB)
+
+  cv2.imwrite(rectImgPath, rectRGB)   
+  
+
+
+def max_colors(cluster, centroids):
+    # Get the number of different clusters, create histogram, and normalize
+    labels = np.arange(0, len(np.unique(cluster.labels_)) + 1)
+    (hist, _) = np.histogram(cluster.labels_, bins = labels)
+    hist = hist.astype("float")
+    hist /= hist.sum()
+    
+
+    # Create frequency rect and iterate through each cluster's color and percentage
+    rect = np.zeros((50, 300, 3), dtype=np.uint8)
+    colors = sorted([(percent, color) for (percent, color) in zip(hist, centroids)])
+    max_percent=0
+    max_rgb_values=[]
+    for i in range( len(colors)):
+      if(colors[i][0]>max_percent):
+        max_percent=colors[i][0]
+        max_rgb_values=colors[i][1]
+
+   
+    return max_rgb_values
+
+
+def delete_text(image_path,rect_num,outimgpath):
+  img = cv2.imread(image_path)
+  img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+# Preprocessing the image starts
+  reshape = img.reshape((img.shape[0] * img.shape[1], 3))
+  cluster = KMeans(n_clusters=5).fit(reshape)
+  visualize = max_colors(cluster, cluster.cluster_centers_)  
+# Convert the image to gray scale
+  gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+  
+# Performing OTSU threshold
+  ret, thresh1 = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU | cv2.THRESH_BINARY_INV)
+  
+# Specify structure shape and kernel size. 
+# Kernel size increases or decreases the area 
+# of the rectangle to be detected.
+# A smaller value like (10, 10) will detect 
+# each word instead of a sentence.
+  rect_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (18, 18))
+# Appplying dilation on the threshold image
+  dilation = cv2.dilate(thresh1, rect_kernel, iterations = 1)
+# Finding contours
+  contours, hierarchy = cv2.findContours(dilation, cv2.RETR_EXTERNAL, 
+                                                 cv2.CHAIN_APPROX_NONE) 
+# Creating a copy of image
+  img2 = img.copy()
+  iti=0
+  for cnt in contours:
+      x, y, w, h = cv2.boundingRect(cnt)
+      iti=iti+1  
+      if(iti in rect_num):
+        rect=cv2.rectangle(img2, (x, y), (x + w, y + h), (visualize), -1)
+       #print(1)
+        #plt.imshow(rect)
+        
+ # rectRGB= cv2.cvtColor(rect, cv2.COLOR_BGR2RGB)
+      
+  #cv2.imwrite('sample3.jpg', rectRGB)
+      
+  imgRGB= cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
+  cv2.imwrite(outimgpath, imgRGB)
+
+
+#img,text= text_extract("sample.jpg")
+#plt.imshow(img)
+#print(text)
+
 ######################################
 #################GUI##################
 ######################################
@@ -464,10 +602,10 @@ def main():
     GUI = Tk()
     GUI.title("Ultimate Image Processor")
     GUI.configure(bg='#d2d2d2')
-    GUI.geometry("1000x700")
+    GUI.geometry("900x750")
     GUI.resizable(True, True)
     
-    labelbanner = Label(GUI, text="Ultimate Image Processor", font=("Arial", 28), bg='lightgreen', relief="ridge", fg="White")
+    labelbanner = Label(GUI, text="Ultimate Image Processor", font=("Arial", 28), bg='lightblue', relief="ridge", fg="White")
     labelbanner.grid(columnspan=5, padx=250, sticky='ew')
     
     DrawScreen()
@@ -481,7 +619,7 @@ def DrawScreen():
     global ButtonSelectQueryImg,ButtonIndexDB
     global labelalg,LabelIndexNote
     global buttonHistoSim,buttonGlobalColor,buttonColorLayout
-    global ButtonDocExtract,ButtonRemoveLogo,ButtonWatermark,ButtonTransparentWatermark
+    global ButtonDocExtract,ButtonRemoveLogo,ButtonWatermark,ButtonTransparentWatermark,ButtonExtractText,ButtonDeleteText
     global labelthres,labelslidernote
     global origx,origy
     global QueryImgPath
@@ -490,26 +628,33 @@ def DrawScreen():
     origx=0
     origy=-70
                 
-    ButtonSelectQueryImg = Button(GUI, text="Select Query Image", font=("Arial", 10), command=lambda: SelectQueryImg())
+    ButtonSelectQueryImg = Button(GUI, text="Select Input Image", font=("Arial", 10), command=lambda: SelectQueryImg())
     ButtonSelectQueryImg.configure(height=2, width=14)
     ButtonSelectQueryImg.place(x=origx+70, y=origy+120)
     
     QueryImgPath = Text(GUI, height=2, width=40)
 
 
-    ButtonDocExtract = Button(GUI, text="Extract Document",bg="lightgreen", font=("Arial", 9), command=lambda: ExtractDocument())
+    ButtonDocExtract = Button(GUI, text="Extract Document",bg="lightblue", font=("Arial", 9), command=lambda: ExtractDocument())
     ButtonDocExtract.configure(height=2, width=17)
 
     
-    ButtonRemoveLogo = Button(GUI, text="Remove Logo",bg="lightgreen", font=("Arial", 9), command=lambda: removeLogoWrapper())
+    ButtonRemoveLogo = Button(GUI, text="Remove Logo",bg="lightblue", font=("Arial", 9), command=lambda: removeLogoWrapper())
     ButtonRemoveLogo.configure(height=2, width=17)
 
-    ButtonWatermark = Button(GUI, text="Remove Watermark",bg="lightgreen", font=("Arial", 9), command=lambda: removeWatermarkWrapper())
+    ButtonWatermark = Button(GUI, text="Remove Watermark",bg="lightblue", font=("Arial", 9), command=lambda: removeWatermarkWrapper())
     ButtonWatermark.configure(height=2, width=17)
     
-    ButtonTransparentWatermark = Button(GUI, text="Remove\n  TranspaentWatermark  ",bg="lightgreen", font=("Arial", 9), command=lambda: removeTransparentWatermarkWrapper())
+    ButtonTransparentWatermark = Button(GUI, text="Remove\n  TranspaentWatermark  ",bg="lightblue", font=("Arial", 9), command=lambda: removeTransparentWatermarkWrapper())
     ButtonTransparentWatermark.configure(height=2, width=17)
+
+    ButtonExtractText = Button(GUI, text="Extract Text  ",bg="lightblue", font=("Arial", 9), command=lambda: ExtractTextWrapper())
+    ButtonExtractText.configure(height=2, width=17)
+
     
+    ButtonDeleteText = Button(GUI, text="Delete Text  ",bg="lightblue", font=("Arial", 9), command=lambda: DeleteTextWrapper())
+    ButtonDeleteText.configure(height=2, width=17)    
+        
 
     global SaveNote
     SaveNote=StringVar()
@@ -522,18 +667,23 @@ def DrawScreen():
 def SelectQueryImg(): 
     error = 0
     global queryimgpath
+    global labelqueryimg
     queryimgpath = filedialog.askopenfilenames()
+    
     try:
-      queryimgpath=queryimgpath[0]
+       checkqueryimgpath=queryimgpath[0]
+       queryimgpath=queryimgpath[0]       
     except:
         error=1
         
-    global labelqueryimg
-    try:
-        labelqueryimg.destroy()
-    except:
-               pass
+            
     if (error == 0  and len(queryimgpath)!=0 ): #Display Query Image in UI
+        try:
+           labelqueryimg.destroy()
+        except:
+                pass    
+        DestroyOutputArea()
+        
         im = Image.open(queryimgpath).resize((300, 400))
         ph = ImageTk.PhotoImage(im)
         
@@ -544,12 +694,13 @@ def SelectQueryImg():
         ButtonDocExtract.place(x=origx+10, y=origy+650)
         ButtonRemoveLogo.place(x=origx+150, y=origy+650)
         ButtonWatermark.place(x=origx+10, y=origy+700)
-        ButtonTransparentWatermark.place(x=origx+150, y=origy+700)        
+        ButtonTransparentWatermark.place(x=origx+150, y=origy+700)
+        ButtonExtractText.place(x=origx+10,y=origy+750)
+        ButtonDeleteText.place(x=origx+150,y=origy+750)
         
         QueryImgPath.delete('1.0', END)
         QueryImgPath.place(x=5, y=110)
         QueryImgPath.insert(END,queryimgpath )
-
 
 
 def docWrappper(q,imglocation,mode=False,out_name="result",area=0.2):
@@ -561,20 +712,16 @@ def docWrappper(q,imglocation,mode=False,out_name="result",area=0.2):
     
     
 def ExtractDocument():
-
-     global labelresultimg
      
-     try:
-        labelresultimg.destroy()
-     except:
-         pass
+     DestroyOutputArea()
         
      directory,inputImageName = os.path.split(queryimgpath)
      
      if("out" not in os.listdir()):
         os.mkdir("out")
         
-     outpath=os.path.join(directory,"out")
+     #outpath=os.path.join(directory,"out")
+     outpath="out"
      
      outimgpath=os.path.join(outpath,inputImageName)
      
@@ -593,22 +740,19 @@ def ExtractDocument():
              
      if(error==0):  
           updateOutputImgGUI(outimgpath)
-
-def removeLogoWrapper():
+        
     
-     global labelresultimg
-     
-     try:
-        labelresultimg.destroy()
-     except:
-         pass
+def removeLogoWrapper():
+         
+     DestroyOutputArea()
         
      directory,inputImageName = os.path.split(queryimgpath)
      
      if("out" not in os.listdir()):
         os.mkdir("out")
         
-     outpath=os.path.join(directory,"out")
+     #outpath=os.path.join(directory,"out")
+     outpath="out"
      
      outimgpath=os.path.join(outpath,inputImageName)
      
@@ -621,20 +765,16 @@ def removeLogoWrapper():
 
     
 def removeWatermarkWrapper():
-    
-     global labelresultimg
-     
-     try:
-        labelresultimg.destroy()
-     except:
-         pass
+         
+     DestroyOutputArea()
         
      directory,inputImageName = os.path.split(queryimgpath)
      
      if("out" not in os.listdir()):
         os.mkdir("out")
         
-     outpath=os.path.join(directory,"out")
+     #outpath=os.path.join(directory,"out")
+     outpath="out"
      
      outimgpath=os.path.join(outpath,inputImageName)
      
@@ -645,21 +785,17 @@ def removeWatermarkWrapper():
      if(error==0):  
           updateOutputImgGUI(outimgpath)
           
-def removeTransparentWatermarkWrapper():
-    
-     global labelresultimg
+def removeTransparentWatermarkWrapper():    
      
-     try:
-        labelresultimg.destroy()
-     except:
-         pass
+     DestroyOutputArea()
         
      directory,inputImageName = os.path.split(queryimgpath)
      
      if("out" not in os.listdir()):
         os.mkdir("out")
         
-     outpath=os.path.join(directory,"out")
+     #outpath=os.path.join(directory,"out")
+     outpath="out"
      
      outimgpath=os.path.join(outpath,inputImageName)
      
@@ -670,32 +806,153 @@ def removeTransparentWatermarkWrapper():
      if(error==0):  
           updateOutputImgGUI(outimgpath)
           
+def ExtractTextWrapper():
+         
+     DestroyOutputArea()
+     
+     directory,inputImageName = os.path.split(queryimgpath)
+     
+     if("out" not in os.listdir()):
+        os.mkdir("out")
+        
+     #outpath=os.path.join(directory,"out")
+     outpath="out"
+     
+     outTextFileName=inputImageName+".txt"
+     outTextPath=os.path.join(outpath,outTextFileName)
+     
+     error=0
 
-#removeWatermark(imagePath, 'out.jpg')
+     try:
+         if(os.path.exists(outTextPath)):
+             os.remove(outTextPath)         
+     except Exception as e:
+         print(e)
+         
+    # rectImgPath="rectImg.jpg"
+         
+    # text_extract(queryimgpath,outTextPath,rectImgPath)
+    
+     with open(outTextPath,"w") as f:
+        f.write(pytesseract.image_to_string(queryimgpath))
 
-#removeTransparentWatermark(imagePath, 'out2.png')
+
+     if(error==0):
+         updateOutputTextGUI(outTextPath)
+          
+
+def DeleteTextWrapper():
+         
+     DestroyOutputArea()
+        
+     directory,inputImageName = os.path.split(queryimgpath)
+     
+     if("out" not in os.listdir()):
+        os.mkdir("out")
+        
+     #outpath=os.path.join(directory,"out")
+     outpath="out"
+
+     
+     outimgpath=os.path.join(outpath,inputImageName)
+     
+     error=0     
+
+     rectImgPath="TempRectangleImage.jpg"
+     outTextPath="tempTxt.jpg"
+     
+     text_extract(queryimgpath,outTextPath,rectImgPath)
+
+     if(error==0):
+          updateOutputImgGUI(rectImgPath)
+
+          USER_INP = simpledialog.askstring(title="Delete Text",
+                                  prompt="Select Number Of Rectangle To Delete Text")        
+          
+          if(USER_INP):
+            numbers=USER_INP.split(",")
+            for num in range(len(numbers)):
+              numbers[num]=int(numbers[num])
+            delete_text(queryimgpath,numbers,outimgpath)
+            DestroyOutputArea()
+            updateOutputImgGUI(outimgpath)
+          else:
+              DestroyOutputArea()
+    
+ 
+def  updateOutputTextGUI(outTextPath):
+    
+     global textbox
+     global buttonOpenResult
+     global LabelSaveNote
+  
+     with open(outTextPath,"r") as f:
+         text=f.readlines()
+
+     textbox=Text(GUI, height = 25, width = 32)
+
+     textbox.place(x=origx+500, y=origy+230)
+
+     for line in text:
+         if (line in ["\n"," \n"]):
+             continue
+         print(line)   
+         textbox.insert(END,line)
+
+     LabelSaveNote= Text(GUI,bg="#d2d2d2",fg="blue",font=("Times", 12), height = 3, width = 32)
+     LabelSaveNote.insert(END,"Text Saved At: \n"+outTextPath)
+     LabelSaveNote.place(x=origx+500,y=origy+700)
+
+     buttonOpenResult = Button(GUI, text="Open", font=("Arial", 10),bg="lightblue", command=lambda: openFile(outTextPath))
+     buttonOpenResult.configure(height=2, width=14)
+     buttonOpenResult.place(x=origx+580, y=origy+650)
      
   
 def updateOutputImgGUI(outImgPath):
 
-     try:
-         LabelSaveNote.destroy()
-     except:
-         pass
-        
-     LabelSaveNote= Label(GUI,textvariable=SaveNote,bg="#d2d2d2",fg="blue",font=("Times", 14))
-     SaveNote.set("Image Saved At: \n"+outImgPath)
-     LabelSaveNote.place(x=origx+390,y=origy+650)
+     global labelresultimg
+     global buttonOpenResult
+     global LabelSaveNote
      
      im = Image.open(outImgPath).resize((300, 400))
      ph = ImageTk.PhotoImage(im)
 
      labelresultimg=Label(GUI,image=ph)
      labelresultimg.image = ph
-     labelresultimg.place(x=origx+450, y=origy+230)
+     labelresultimg.place(x=origx+500, y=origy+230)
+
+
+     LabelSaveNote= Text(GUI,bg="#d2d2d2",fg="blue",font=("Times", 12), height = 3, width = 32)
+     LabelSaveNote.insert(END,"Image Saved At: \n"+ outImgPath)
+     LabelSaveNote.place(x=origx+500,y=origy+700)
+          
+     buttonOpenResult = Button(GUI, text="Open", font=("Arial", 10),bg="lightblue", command=lambda: openFile(outImgPath))
+     buttonOpenResult.configure(height=2, width=14)
+     buttonOpenResult.place(x=origx+580, y=origy+650)
+     
      GUI.update()
                    
+def DestroyOutputArea():
+    
+     try:
+        labelresultimg.destroy()
+     except:
+         pass
+        
+     try:
+        textbox.destroy()
+     except:
+         pass
+     try:
+         LabelSaveNote.destroy()
+     except:
+         pass
 
+     try:
+        buttonOpenResult.destroy()
+     except:
+         pass
+        
 
 
 ####################################
@@ -887,5 +1144,6 @@ try:
           q=Queue()
           freeze_support()
           main()
-except:
+except Exception  as e:
+   print(e)
    ShowError("Error Happened, Please Check Your Inputs!")
